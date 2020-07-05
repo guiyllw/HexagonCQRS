@@ -5,10 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Interfaces\Adapters\" />
-    <Folder Include="Interfaces\Ports\" />
-    <Folder Include="Models\" />
-    <Folder Include="UseCases\" />
+    <PackageReference Include="System.Collections.Immutable" Version="1.7.1" />
   </ItemGroup>
 
 </Project>

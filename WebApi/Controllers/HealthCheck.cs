@@ -6,8 +6,7 @@ namespace WebApi.Controllers
     [ApiController]
     public class HealthCheck : ControllerBase
     {
-        [HttpGet]
-        [Route("/")]
+        [HttpGet("/")]
         public IActionResult Health()
         {
             return Ok("I'm fine =)");
