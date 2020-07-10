@@ -21,18 +21,15 @@ namespace WebApi.Controllers
         private readonly IStateMachine<Order, OrderStatus, OrderTrigger> stateMachine;
 
         private readonly IFindOrderByNumberPort findOrderByNumberPort;
-        private readonly ICancelOrderPort cancelOrderPort;
 
         public OrderController(
             ILogger<OrderController> logger,
             IStateMachine<Order, OrderStatus, OrderTrigger> stateMachine,
-            IFindOrderByNumberPort findOrderByNumberPort,
-            ICancelOrderPort cancelOrderPort)
+            IFindOrderByNumberPort findOrderByNumberPort)
         {
             this.logger = logger;
             this.stateMachine = stateMachine;
             this.findOrderByNumberPort = findOrderByNumberPort;
-            this.cancelOrderPort = cancelOrderPort;
         }
 
         [HttpGet("{orderNumber}")]
