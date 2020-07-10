@@ -1,13 +1,17 @@
 using Arch.EntityFrameworkCore.UnitOfWork;
 using AutoMapper;
-using Domain.Interfaces.Adapters;
-using Domain.Interfaces.Ports;
-using Domain.Models;
-using Domain.UseCases;
-using Infrastructure.Adapters;
-using Infrastructure.Commands.AdvanceOrderStatus;
-using Infrastructure.Contexts;
-using Infrastructure.Queries.FindOrderById;
+using Domain.Order.Adapters;
+using Domain.Order.Enums;
+using Domain.Order.Models;
+using Domain.Order.Ports;
+using Domain.Order.UseCases;
+using Infrastructure.Common.Contexts;
+using Infrastructure.Order.Adapters;
+using Infrastructure.Order.Commands.ApproveOrder;
+using Infrastructure.Order.Commands.CancelOrder;
+using Infrastructure.Order.Commands.DeliveryOrder;
+using Infrastructure.Order.Queries.FindOrderByName;
+using Infrastructure.Order.Queries.FindOrderByNumber;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -21,6 +25,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using WebApi.Interfaces;
+using WebApi.StateMachines;
 
 namespace WebApi
 {
@@ -43,6 +49,7 @@ namespace WebApi
             ConfigureCommands(services);
             ConfigurePorts(services);
             ConfigureAdapters(services);
+            ConfigureStateMachine(services);
 
             services.AddLogging(configure =>
             {
@@ -78,8 +85,11 @@ namespace WebApi
 
         private void ConfigureDatabase(IServiceCollection services)
         {
-            services.AddDbContext<ReadContext>(options => options.UseInMemoryDatabase("ReadOnly"));
-            services.AddDbContext<WriteContext>(options => options.UseInMemoryDatabase("WriteOnly"));
+            string readOnlyConnectionString = configuration.GetConnectionString("ReadOnlyContext");
+            string writeOnlyConnectionString = configuration.GetConnectionString("WriteOnlyContext");
+
+            services.AddDbContext<ReadContext>(options => options.UseInMemoryDatabase(readOnlyConnectionString));
+            services.AddDbContext<WriteContext>(options => options.UseInMemoryDatabase(writeOnlyConnectionString));
 
             services.AddUnitOfWork<ReadContext>();
             services.AddUnitOfWork<WriteContext>();
@@ -143,17 +153,30 @@ namespace WebApi
 
         private void ConfigureCommands(IServiceCollection services)
         {
-            services.AddScoped<IRequestHandler<AdvanceOrderStatusCommand, Order>, AdvanceOrderStatusCommandHandler>();
+            services.AddScoped<IRequestHandler<ApproveOrderCommand, bool>, ApproveOrderCommandHandler>();
+            services.AddScoped<IRequestHandler<CancelOrderCommand, bool>, CancelOrderCommandHandler>();
+            services.AddScoped<IRequestHandler<DeliveryOrderCommand, bool>, DeliveryOrderCommandHandler>();
         }
 
         private void ConfigurePorts(IServiceCollection services)
         {
-            services.AddScoped<IAdvanceOrderStatusPort, AdvanceOrderStatusUseCase>();
+            services.AddScoped<IFindOrderByNumberPort, FindOrderByNumberUseCase>();
+            services.AddScoped<IApproveOrderPort, ApproveOrderUseCase>();
+            services.AddScoped<ICancelOrderPort, CancelOrderUseCase>();
+            services.AddScoped<IDeliveryOrderPort, DeliveryOrderUseCase>();
         }
 
         private void ConfigureAdapters(IServiceCollection services)
         {
-            services.AddScoped<IOrderAdapter, OrderMemoryAdapter>();
+            services.AddScoped<IFindOrderByNumberAdapter, OrderMemoryAdapter>();
+            services.AddScoped<IApproveOrderAdapter, OrderMemoryAdapter>();
+            services.AddScoped<ICancelOrderAdapter, OrderMemoryAdapter>();
+            services.AddScoped<IDeliveryOrderAdapter, OrderMemoryAdapter>();
+        }
+
+        private void ConfigureStateMachine(IServiceCollection services)
+        {
+            services.AddScoped<IStateMachine<Order, OrderStatus, OrderTrigger>, OrderStateMachine>();
         }
     }
 }

@@ -1,16 +1,14 @@
-﻿using Arch.EntityFrameworkCore.UnitOfWork;
-using Domain.Enums.Order;
-using Domain.Exceptions.Order;
-using Domain.Interfaces.Ports;
-using Domain.Models;
-using Infrastructure.Contexts;
-using Infrastructure.Entities;
+﻿using Domain.Order.Enums;
+using Domain.Order.Exceptions;
+using Domain.Order.Models;
+using Domain.Order.Ports;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
+using WebApi.Interfaces;
+using WebApi.StateMachines;
 
 namespace WebApi.Controllers
 {
@@ -19,88 +17,70 @@ namespace WebApi.Controllers
     public class OrderController : ControllerBase
     {
         private readonly ILogger<OrderController> logger;
-        private readonly IAdvanceOrderStatusPort advanceOrderStatusPort;
 
-        private readonly IUnitOfWork<WriteContext> unitOfWorkWrite;
-        private readonly IUnitOfWork<ReadContext> unitOfWorkRead;
+        private readonly IStateMachine<Order, OrderStatus, OrderTrigger> stateMachine;
 
-        public OrderController(ILogger<OrderController> logger, IAdvanceOrderStatusPort advanceOrderStatusPort, IUnitOfWork<WriteContext> unitOfWorkWrite, IUnitOfWork<ReadContext> unitOfWorkRead)
+        private readonly IFindOrderByNumberPort findOrderByNumberPort;
+        private readonly ICancelOrderPort cancelOrderPort;
+
+        public OrderController(
+            ILogger<OrderController> logger,
+            IStateMachine<Order, OrderStatus, OrderTrigger> stateMachine,
+            IFindOrderByNumberPort findOrderByNumberPort,
+            ICancelOrderPort cancelOrderPort)
         {
             this.logger = logger;
-            this.advanceOrderStatusPort = advanceOrderStatusPort;
-            this.unitOfWorkWrite = unitOfWorkWrite;
-            this.unitOfWorkRead = unitOfWorkRead;
+            this.stateMachine = stateMachine;
+            this.findOrderByNumberPort = findOrderByNumberPort;
+            this.cancelOrderPort = cancelOrderPort;
         }
 
-        [HttpGet("seed")]
-        public IActionResult Seed()
+        [HttpGet("{orderNumber}")]
+        public async Task<IActionResult> FindOrderByNumberAsync([FromRoute] int orderNumber)
         {
-            unitOfWorkWrite.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 1 });
-            unitOfWorkWrite.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 2 });
-            unitOfWorkWrite.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 3 });
-            unitOfWorkWrite.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 4 });
-            unitOfWorkWrite.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 5 });
+            Order order = await findOrderByNumberPort.FindByNumber(orderNumber);
 
-            unitOfWorkWrite.SaveChanges();
-
-            unitOfWorkRead.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 1 });
-            unitOfWorkRead.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 2 });
-            unitOfWorkRead.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 3 });
-            unitOfWorkRead.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 4 });
-            unitOfWorkRead.GetRepository<OrderEntity>().Insert(new OrderEntity { Number = 5 });
-
-            unitOfWorkRead.SaveChanges();
-
-            return Ok();
+            return Ok(order);
         }
 
-        [HttpGet("replicate")]
-        public IActionResult Replicate()
-        {
-
-            foreach (OrderEntity order in unitOfWorkWrite.GetRepository<OrderEntity>().GetAll())
-            {
-                unitOfWorkRead.GetRepository<OrderEntity>().Update(order);
-            }
-
-            unitOfWorkRead.SaveChanges();
-
-            return Ok();
-        }
-
-        [HttpGet("list")]
-        public IActionResult FindAll()
-        {
-            IEnumerable<Order> ordersW = unitOfWorkWrite.GetRepository<OrderEntity>()
-                .GetAll();
-
-            IEnumerable<Order> ordersR = unitOfWorkRead.GetRepository<OrderEntity>()
-                .GetAll();
-
-            return Ok(new
-            {
-                Write = ordersW,
-                Read = ordersR
-            });
-        }
-
-        [HttpPatch("status")]
-        public async Task<IActionResult> AdvanceOrderStatusPort([FromQuery] int orderNumber, [FromQuery] Status status)
+        [HttpPatch("{orderNumber}/advance")]
+        public async Task<IActionResult> AdvanceOrderAsync([FromRoute] int orderNumber, [FromQuery] OrderTrigger trigger)
         {
             try
             {
-                Order order = await advanceOrderStatusPort.AdvanceOrderStatus(orderNumber, status);
-                return Ok(order);
+                Order order = await findOrderByNumberPort.FindByNumber(orderNumber);
+
+                await stateMachine.BuildFor(order).FireAsync(trigger);
+
+                return Ok(order.Number);
             }
             catch (OrderNotFoundException ex)
             {
                 logger.LogError(ex, ex.Message);
                 return NotFound(orderNumber);
             }
-            catch (StatusNotAllowedException ex)
+            catch (Exception ex)
             {
                 logger.LogError(ex, ex.Message);
-                return BadRequest(status);
+                return StatusCode((int)HttpStatusCode.InternalServerError);
+            }
+        }
+
+        [HttpPatch("{orderNumber}/cancel")]
+        public async Task<IActionResult> CancelOrderAsync([FromRoute] int orderNumber)
+        {
+            try
+            {
+                Order order = await findOrderByNumberPort.FindByNumber(orderNumber);
+
+                await stateMachine.BuildFor(order).FireAsync(OrderTrigger.Cancel);
+
+                return Ok();
+            }
+            catch (OrderNotFoundException ex)
+            {
+                logger.LogError(ex, ex.Message);
+                return NotFound(orderNumber);
             }
             catch (Exception ex)
             {
